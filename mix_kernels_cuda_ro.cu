@@ -11,6 +11,16 @@
 #include <math.h>
 #include "lcutil.h"
 
+#ifndef BENCHMARK_FUNCTION
+#define BENCHMARK_FUNCTION mad
+#define INTEGER_OPS
+#define OPS_PER_THREAD 2
+#endif
+
+#ifndef OPS_PER_THREAD
+#define OPS_PER_THREAD 1
+#endif
+
 #define ELEMENTS_PER_THREAD (8)
 #define FUSION_DEGREE (4)
 
@@ -21,6 +31,21 @@ template<class T>
 inline __device__ T mad(const T a, const T b, const T c){ return a*b+c; }
 
 template<class T>
+inline __device__ T mul(const T a, const T b, const T c){ return b*c; }
+
+template<class T>
+inline __device__ T add(const T a, const T b, const T c){ return b+c; }
+
+template<class T>
+inline __device__ T div(const T a, const T b, const T c){ return b/c; }
+
+template<class T>
+inline __device__ T exp(const T a, const T b, const T c){ return exp(c); }
+
+template<class T>
+inline __device__ T log(const T a, const T b, const T c){ return log(c); }
+
+template<class T>
 inline __device__ bool equal(const T a, const T b){ return a==b; }
 
 #if __CUDA_ARCH__ >= 530
@@ -28,6 +53,16 @@ template<>
 inline __device__ half2 conv_int(const int i){ return __half2half2( __int2half_rd(i) ); }
 template<>
 inline __device__ half2 mad(const half2 a, const half2 b, const half2 c){ return __hfma2(a, b, c)/*__hadd2(__hmul2(a, b), c)*/; }
+template<>
+inline __device__ half2 mul(const half2 a, const half2 b, const half2 c){ return __hmul2(b, c); }
+template<>
+inline __device__ half2 add(const half2 a, const half2 b, const half2 c){ return __hadd2(b, c); }
+template<>
+inline __device__ half2 div(const half2 a, const half2 b, const half2 c){ return __h2div(b, c); }
+template<>
+inline __device__ half2 exp(const half2 a, const half2 b, const half2 c){ return h2exp(c); }
+template<>
+inline __device__ half2 log(const half2 a, const half2 b, const half2 c){ return h2log(c); }
 template<>
 inline __device__ bool equal(const half2 a, const half2 b){ return __hbeq2(a, b); }
 #else
@@ -37,8 +72,33 @@ inline __device__ half2 conv_int(const int i){ return half2(); }
 template<>
 inline __device__ half2 mad(const half2 a, const half2 b, const half2 c){ return half2(); }
 template<>
+inline __device__ half2 mul(const half2 a, const half2 b, const half2 c){ return half2(); }
+template<>
+inline __device__ half2 add(const half2 a, const half2 b, const half2 c){ return half2(); }
+template<>
+inline __device__ half2 div(const half2 a, const half2 b, const half2 c){ return half2(); }
+template<>
+inline __device__ half2 exp(const half2 a, const half2 b, const half2 c){ return half2(); }
+template<>
+inline __device__ half2 log(const half2 a, const half2 b, const half2 c){ return half2(); }
+template<>
 inline __device__ bool equal(const half2 a, const half2 b){ return false; }
 #endif
+
+template<>
+inline __device__ short exp(const short a, const short b, const short c){ return 0; }
+template<>
+inline __device__ short log(const short a, const short b, const short c){ return 0; }
+
+template<>
+inline __device__ int exp(const int a, const int b, const int c){ return 0; }
+template<>
+inline __device__ int log(const int a, const int b, const int c){ return 0; }
+
+template<>
+inline __device__ long exp(const long a, const long b, const long c){ return 0; }
+template<>
+inline __device__ long log(const long a, const long b, const long c){ return 0; }
 
 template <class T, int blockdim, unsigned int granularity, unsigned int fusion_degree, unsigned int compute_iterations, bool TemperateUnroll>
 __global__ void benchmark_func(T seed, T *g_data){
@@ -56,14 +116,14 @@ __global__ void benchmark_func(T seed, T *g_data){
 			// Perform computations (compute intensive part)
 			#pragma unroll TemperateUnroll ? 4 : 128
 			for(int i=0; i<compute_iterations; i++){
-				tmps[j] = mad(tmps[j], tmps[j], seed);
+				tmps[j] = BENCHMARK_FUNCTION(tmps[j], tmps[j], seed);
 			}
 		}
 		// Multiply add reduction
 		T sum = conv_int<T>(0);
 		#pragma unroll
 		for(int j=0; j<granularity; j+=2)
-			sum = mad(tmps[j], tmps[j+1], sum);
+			sum = BENCHMARK_FUNCTION(tmps[j], tmps[j+1], sum);
 		// Dummy code
 		if( equal(sum, conv_int<T>(-1)) ) // Designed so it never executes
 			g_data[idx+k*big_stride] = sum;
@@ -107,7 +167,7 @@ void runbench(double *cd, long size, bool doHalfs){
 	const long compute_grid_size = size/ELEMENTS_PER_THREAD/FUSION_DEGREE;
 	const int BLOCK_SIZE = 256;
 	const int TOTAL_BLOCKS = compute_grid_size/BLOCK_SIZE;
-	const long long computations = (ELEMENTS_PER_THREAD*(long long)compute_grid_size+(2*ELEMENTS_PER_THREAD*compute_iterations)*(long long)compute_grid_size)*FUSION_DEGREE;
+	const long long computations = (ELEMENTS_PER_THREAD*(long long)compute_grid_size+(OPS_PER_THREAD*ELEMENTS_PER_THREAD*compute_iterations)*(long long)compute_grid_size)*FUSION_DEGREE;
 	const long long memoryoperations = size;
 
 	dim3 dimBlock(BLOCK_SIZE, 1, 1);
@@ -135,6 +195,7 @@ void runbench(double *cd, long size, bool doHalfs){
 	benchmark_func< int, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, compute_iterations, true ><<< dimGrid, dimBlock >>>(1, (int*)cd);
 	float kernel_time_mad_int = finalizeEvents(start, stop);
 
+#ifdef INTEGER_OPS
 	printf("         %4d,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,  %8.3f,%8.2f,%8.2f,%7.2f\n",
 		compute_iterations,
 		((double)computations)/((double)memoryoperations*sizeof(float)),
@@ -153,10 +214,26 @@ void runbench(double *cd, long size, bool doHalfs){
 		kernel_time_mad_int,
 		((double)computations)/kernel_time_mad_int*1000./(double)(1000*1000*1000),
 		((double)memoryoperations*sizeof(int))/kernel_time_mad_int*1000./(1000.*1000.*1000.) );
+#else
+		printf("         %4d,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f\n",
+			compute_iterations,
+			((double)computations)/((double)memoryoperations*sizeof(float)),
+			kernel_time_mad_sp,
+			((double)computations)/kernel_time_mad_sp*1000./(double)(1000*1000*1000),
+			((double)memoryoperations*sizeof(float))/kernel_time_mad_sp*1000./(1000.*1000.*1000.),
+			((double)computations)/((double)memoryoperations*sizeof(double)),
+			kernel_time_mad_dp,
+			((double)computations)/kernel_time_mad_dp*1000./(double)(1000*1000*1000),
+			((double)memoryoperations*sizeof(double))/kernel_time_mad_dp*1000./(1000.*1000.*1000.),
+			((double)2*computations)/((double)memoryoperations*sizeof(half2)),
+			kernel_time_mad_hp,
+			((double)2*computations)/kernel_time_mad_hp*1000./(double)(1000*1000*1000),
+			((double)memoryoperations*sizeof(half2))/kernel_time_mad_hp*1000./(1000.*1000.*1000.) );
+#endif
 }
 
 extern "C" void mixbenchGPU(double *c, long size){
-	const char *benchtype = "compute with global memory (block strided)";
+	const char *benchtype = "compute BENCHMARK_FUNCTION with global memory (block strided)";
 
 	printf("Trade-off type:       %s\n", benchtype);
 	printf("Elements per thread:  %d\n", ELEMENTS_PER_THREAD);
@@ -174,10 +251,15 @@ extern "C" void mixbenchGPU(double *c, long size){
 	// Synchronize in order to wait for memory operations to finish
 	CUDA_SAFE_CALL( cudaThreadSynchronize() );
 
+#ifdef INTEGER_OPS
 	printf("----------------------------------------------------------------------------- CSV data -----------------------------------------------------------------------------\n");
 	printf("Experiment ID, Single Precision ops,,,,              Double precision ops,,,,              Half precision ops,,,,                Integer operations,,, \n");
 	printf("Compute iters, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Iops/byte, ex.time,   GIOPS, GB/sec\n");
-
+#else
+	printf("----------------------------------------------------------------------------- CSV data ------------------------------------------\n");
+	printf("Experiment ID, Single Precision ops,,,,              Double precision ops,,,,              Half precision ops,,,,                \n");
+	printf("Compute iters, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, \n");
+#endif
 	runbench_warmup(cd, size);
 
 	runbench<0>(cd, size, doHalfs);

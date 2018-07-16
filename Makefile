@@ -20,7 +20,7 @@ ifeq ($(OS),Darwin)
 else
     LFLAGS_OCL = -L${OCL_LIB_PATH} -lm -lstdc++ -lOpenCL -lrt
 endif
-NVCODE = -gencode=arch=compute_60,code=\"compute_60\" -gencode=arch=compute_30,code=\"compute_30\"
+NVCODE = -gencode=arch=compute_60,code=\"compute_60\" -gencode=arch=compute_30,code=\"compute_30\" -gencode=arch=compute_52,code=\"compute_52\"
 
 ifdef HIP_PATH
     HIPCC=$(HIP_PATH)/bin/hipcc
@@ -42,7 +42,7 @@ ifdef CUDA_INSTALL_PATH
         all: mixbench-hip-alt mixbench-hip-ro mixbench-cuda-alt mixbench-cuda-ro mixbench-ocl-alt mixbench-ocl-ro
     else
         # build both cuda and opencl executables
-        all: mixbench-cuda-alt mixbench-cuda-ro mixbench-ocl-alt mixbench-ocl-ro
+        all: mixbench-cuda-alts mixbench-cuda-ros mixbench-ocl-alt mixbench-ocl-ro
     endif
 else
     ifdef HIP_PLATFORM
@@ -54,10 +54,43 @@ else
     endif
 endif
 
+mixbench-cuda-alts: mixbench-cuda-alt mixbench-cuda-alt-add mixbench-cuda-alt-mul mixbench-cuda-alt-div mixbench-cuda-alt-exp mixbench-cuda-alt-log
+mixbench-cuda-ros: mixbench-cuda-ro mixbench-cuda-ro-add mixbench-cuda-ro-mul mixbench-cuda-ro-div mixbench-cuda-ro-exp  mixbench-cuda-ro-log
+
 mixbench-cuda-alt: main-cuda.o mix_kernels_cuda.o
 	${CC} -o $@ $^ ${LFLAGS_CUDA}
 
+mixbench-cuda-alt-add: main-cuda.o mix_kernels_cuda_add.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
+mixbench-cuda-alt-mul: main-cuda.o mix_kernels_cuda_mul.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
+mixbench-cuda-alt-div: main-cuda.o mix_kernels_cuda_div.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
+mixbench-cuda-alt-exp: main-cuda.o mix_kernels_cuda_exp.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
+mixbench-cuda-alt-log: main-cuda.o mix_kernels_cuda_log.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
 mixbench-cuda-ro: main-cuda-ro.o mix_kernels_cuda_ro.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
+mixbench-cuda-ro-add: main-cuda-ro.o mix_kernels_cuda_ro_add.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
+mixbench-cuda-ro-mul: main-cuda-ro.o mix_kernels_cuda_ro_mul.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
+mixbench-cuda-ro-div: main-cuda-ro.o mix_kernels_cuda_ro_div.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
+mixbench-cuda-ro-exp: main-cuda-ro.o mix_kernels_cuda_ro_exp.o
+	${CC} -o $@ $^ ${LFLAGS_CUDA}
+
+mixbench-cuda-ro-log: main-cuda-ro.o mix_kernels_cuda_ro_log.o
 	${CC} -o $@ $^ ${LFLAGS_CUDA}
 
 mixbench-ocl-alt: main-ocl.o mix_kernels_ocl.o
@@ -87,8 +120,38 @@ main-ocl-ro.o: main-ocl.cpp mix_kernels_ocl.h loclutil.h version_info.h
 mix_kernels_cuda.o: mix_kernels_cuda.cu mix_kernels_cuda.h lcutil.h
 	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -c $< -o $@
 
+mix_kernels_cuda_mul.o: mix_kernels_cuda.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=mul -DINTEGER_OPS -c $< -o $@
+
+mix_kernels_cuda_add.o: mix_kernels_cuda.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=add -DINTEGER_OPS -c $< -o $@
+
+mix_kernels_cuda_div.o: mix_kernels_cuda.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=div -DINTEGER_OPS -c $< -o $@
+
+mix_kernels_cuda_exp.o: mix_kernels_cuda.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=exp -DINTEGER_OPS -c $< -o $@
+
+mix_kernels_cuda_log.o: mix_kernels_cuda.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=log -DINTEGER_OPS -c $< -o $@
+
 mix_kernels_cuda_ro.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
 	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -c $< -o $@
+
+mix_kernels_cuda_ro_add.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=add -DINTEGER_OPS -c $< -o $@
+
+mix_kernels_cuda_ro_mul.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=mul -DINTEGER_OPS -c $< -o $@
+
+mix_kernels_cuda_ro_div.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=div -DINTEGER_OPS -c $< -o $@
+
+mix_kernels_cuda_ro_exp.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=exp -DINTEGER_OPS -c $< -o $@
+
+mix_kernels_cuda_ro_log.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=log -DINTEGER_OPS -c $< -o $@
 
 mix_kernels_ocl.o: mix_kernels_ocl.cpp mix_kernels_ocl.h loclutil.h
 ifeq ($(shell ${CC} -c ${FLAGS_OCL} check-half2-def.cpp -o /dev/null 2>/dev/null; echo $$?),0)
