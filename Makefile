@@ -55,7 +55,7 @@ else
 endif
 
 mixbench-cuda-alts: mixbench-cuda-alt mixbench-cuda-alt-add mixbench-cuda-alt-mul mixbench-cuda-alt-div mixbench-cuda-alt-exp mixbench-cuda-alt-log
-mixbench-cuda-ros: mixbench-cuda-ro mixbench-cuda-ro-add mixbench-cuda-ro-mul mixbench-cuda-ro-div mixbench-cuda-ro-exp  mixbench-cuda-ro-log
+mixbench-cuda-ros: mixbench-cuda-ro mixbench-cuda-ro-add mixbench-cuda-ro-mul mixbench-cuda-ro-div
 
 mixbench-cuda-alt: main-cuda.o mix_kernels_cuda.o
 	${CC} -o $@ $^ ${LFLAGS_CUDA}
@@ -130,10 +130,10 @@ mix_kernels_cuda_div.o: mix_kernels_cuda.cu mix_kernels_cuda.h lcutil.h
 	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=div -DINTEGER_OPS -c $< -o $@
 
 mix_kernels_cuda_exp.o: mix_kernels_cuda.cu mix_kernels_cuda.h lcutil.h
-	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=exp -DINTEGER_OPS -c $< -o $@
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=exp -c $< -o $@
 
 mix_kernels_cuda_log.o: mix_kernels_cuda.cu mix_kernels_cuda.h lcutil.h
-	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=log -DINTEGER_OPS -c $< -o $@
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=log -c $< -o $@
 
 mix_kernels_cuda_ro.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
 	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -c $< -o $@
@@ -148,10 +148,10 @@ mix_kernels_cuda_ro_div.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
 	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=div -DINTEGER_OPS -c $< -o $@
 
 mix_kernels_cuda_ro_exp.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
-	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=exp -DINTEGER_OPS -c $< -o $@
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=exp -c $< -o $@
 
 mix_kernels_cuda_ro_log.o: mix_kernels_cuda_ro.cu mix_kernels_cuda.h lcutil.h
-	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=log -DINTEGER_OPS -c $< -o $@
+	${NVCC} ${NVCODE} ${NVFLAGS} -DUNIX -DBENCHMARK_FUNCTION=log -c $< -o $@
 
 mix_kernels_ocl.o: mix_kernels_ocl.cpp mix_kernels_ocl.h loclutil.h
 ifeq ($(shell ${CC} -c ${FLAGS_OCL} check-half2-def.cpp -o /dev/null 2>/dev/null; echo $$?),0)

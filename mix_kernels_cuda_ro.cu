@@ -21,6 +21,14 @@
 #define OPS_PER_THREAD 1
 #endif
 
+#ifndef WARMUP_ITERS
+#define WARMUP_ITERS 5
+#endif
+
+#ifndef BENCH_ITERS
+#define BENCH_ITERS 20
+#endif
+
 #define ELEMENTS_PER_THREAD (8)
 #define FUSION_DEGREE (4)
 
@@ -155,9 +163,11 @@ void runbench_warmup(double *cd, long size){
 	dim3 dimBlock(BLOCK_SIZE, 1, 1);
 	dim3 dimReducedGrid(TOTAL_REDUCED_BLOCKS, 1, 1);
 
-	benchmark_func< short, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, 0, true ><<< dimReducedGrid, dimBlock >>>((short)1, (short*)cd);
-	CUDA_SAFE_CALL( cudaGetLastError() );
-	CUDA_SAFE_CALL( cudaThreadSynchronize() );
+	for (int iter = 0; iter < WARMUP_ITERS; iter++) {
+		benchmark_func< short, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, 0, true ><<< dimReducedGrid, dimBlock >>>((short)1, (short*)cd);
+		CUDA_SAFE_CALL( cudaGetLastError() );
+		CUDA_SAFE_CALL( cudaThreadSynchronize() );
+	}
 }
 
 int out_config = 1;
@@ -169,31 +179,49 @@ void runbench(double *cd, long size, bool doHalfs){
 	const int TOTAL_BLOCKS = compute_grid_size/BLOCK_SIZE;
 	const long long computations = (ELEMENTS_PER_THREAD*(long long)compute_grid_size+(OPS_PER_THREAD*ELEMENTS_PER_THREAD*compute_iterations)*(long long)compute_grid_size)*FUSION_DEGREE;
 	const long long memoryoperations = size;
+	float kernel_time_mad_sp = 0, kernel_time_mad_dp = 0, kernel_time_mad_hp = 0;
+#ifdef INTEGER_OPS // to avoid unused variable warnings
+ 	float kernel_time_mad_int = 0;
+#endif
 
 	dim3 dimBlock(BLOCK_SIZE, 1, 1);
 	dim3 dimGrid(TOTAL_BLOCKS, 1, 1);
 	cudaEvent_t start, stop;
 
-	initializeEvents(&start, &stop);
-	benchmark_func< float, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, compute_iterations, false ><<< dimGrid, dimBlock >>>(1.0f, (float*)cd);
-	float kernel_time_mad_sp = finalizeEvents(start, stop);
-
-	initializeEvents(&start, &stop);
-	benchmark_func< double, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, compute_iterations, false ><<< dimGrid, dimBlock >>>(1.0, cd);
-	float kernel_time_mad_dp = finalizeEvents(start, stop);
-
-	float kernel_time_mad_hp = 0.f;
-	if( doHalfs ){
+	for (int iter = 0; iter < BENCH_ITERS; iter++) {
 		initializeEvents(&start, &stop);
-		half2 h_ones;
-		*((int32_t*)&h_ones) = 15360 + (15360 << 16); // 1.0 as half
-		benchmark_func< half2, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, compute_iterations, false ><<< dimGrid, dimBlock >>>(h_ones, (half2*)cd);
-		kernel_time_mad_hp = finalizeEvents(start, stop);
+		benchmark_func< float, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, compute_iterations, false ><<< dimGrid, dimBlock >>>(1.0f, (float*)cd);
+		kernel_time_mad_sp += finalizeEvents(start, stop);
+	}
+	kernel_time_mad_sp = kernel_time_mad_sp / BENCH_ITERS;
+
+	for (int iter = 0; iter < BENCH_ITERS; iter++) {
+		initializeEvents(&start, &stop);
+		benchmark_func< double, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, compute_iterations, false ><<< dimGrid, dimBlock >>>(1.0, cd);
+		kernel_time_mad_dp += finalizeEvents(start, stop);
+	}
+	kernel_time_mad_dp = kernel_time_mad_dp / BENCH_ITERS;
+
+	kernel_time_mad_hp = 0.f;
+	if( doHalfs ){
+		for (int iter = 0; iter < BENCH_ITERS; iter++) {
+			initializeEvents(&start, &stop);
+			half2 h_ones;
+			*((int32_t*)&h_ones) = 15360 + (15360 << 16); // 1.0 as half
+			benchmark_func< half2, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, compute_iterations, false ><<< dimGrid, dimBlock >>>(h_ones, (half2*)cd);
+			kernel_time_mad_hp += finalizeEvents(start, stop);
+		}
+		kernel_time_mad_hp = kernel_time_mad_hp / BENCH_ITERS;
 	}
 
-	initializeEvents(&start, &stop);
-	benchmark_func< int, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, compute_iterations, true ><<< dimGrid, dimBlock >>>(1, (int*)cd);
-	float kernel_time_mad_int = finalizeEvents(start, stop);
+#ifdef INTEGER_OPS
+	for (int iter = 0; iter < BENCH_ITERS; iter++) {
+		initializeEvents(&start, &stop);
+		benchmark_func< int, BLOCK_SIZE, ELEMENTS_PER_THREAD, FUSION_DEGREE, compute_iterations, true ><<< dimGrid, dimBlock >>>(1, (int*)cd);
+		kernel_time_mad_int += finalizeEvents(start, stop);
+	}
+	kernel_time_mad_int = kernel_time_mad_int / BENCH_ITERS;
+#endif
 
 #ifdef INTEGER_OPS
 	printf("         %4d,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,  %8.3f,%8.2f,%8.2f,%7.2f\n",

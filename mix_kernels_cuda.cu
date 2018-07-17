@@ -21,6 +21,14 @@
 #define OPS_PER_THREAD 1
 #endif
 
+#ifndef WARMUP_ITERS
+#define WARMUP_ITERS 5
+#endif
+
+#ifndef BENCH_ITERS
+#define BENCH_ITERS 20
+#endif
+
 #define COMP_ITERATIONS (8192)
 #define UNROLL_ITERATIONS (32)
 #define REGBLOCK_SIZE (8)
@@ -221,9 +229,11 @@ void runbench_warmup(double *cd, long size){
 	dim3 dimBlock(BLOCK_SIZE, 1, 1);
 	dim3 dimReducedGrid(TOTAL_REDUCED_BLOCKS, 1, 1);
 
-	benchmark_func< short, BLOCK_SIZE, 0, true ><<< dimReducedGrid, dimBlock >>>((short)1, (short*)cd);
-	CUDA_SAFE_CALL( cudaGetLastError() );
-	CUDA_SAFE_CALL( cudaThreadSynchronize() );
+	for (int iter = 0; iter < WARMUP_ITERS; iter++) {
+		benchmark_func< short, BLOCK_SIZE, 0, true ><<< dimReducedGrid, dimBlock >>>((short)1, (short*)cd);
+		CUDA_SAFE_CALL( cudaGetLastError() );
+		CUDA_SAFE_CALL( cudaThreadSynchronize() );
+	}
 }
 
 template<int memory_ratio>
@@ -238,32 +248,48 @@ void runbench(double *cd, long size, bool doHalfs){
 	const int TOTAL_BLOCKS = compute_grid_size/BLOCK_SIZE;
 	const long long computations = OPS_PER_THREAD*(long long)(COMP_ITERATIONS)*REGBLOCK_SIZE*compute_grid_size;
 	const long long memoryoperations = (long long)(COMP_ITERATIONS)*compute_grid_size;
+	float kernel_time_mad_sp = 0, kernel_time_mad_dp = 0, kernel_time_mad_hp = 0;
+#ifdef INTEGER_OPS // to avoid unused variable warnings
+ 	float kernel_time_mad_int = 0;
+#endif
 
 	dim3 dimBlock(BLOCK_SIZE, 1, 1);
     dim3 dimGrid(TOTAL_BLOCKS, 1, 1);
 	cudaEvent_t start, stop;
 
-	initializeEvents(&start, &stop);
-	benchmark_func< float, BLOCK_SIZE, memory_ratio, false ><<< dimGrid, dimBlock >>>(1.0f, (float*)cd);
-	float kernel_time_mad_sp = finalizeEvents(start, stop);
-
-	initializeEvents(&start, &stop);
-	benchmark_func< double, BLOCK_SIZE, memory_ratio, false ><<< dimGrid, dimBlock >>>(1.0, cd);
-	float kernel_time_mad_dp = finalizeEvents(start, stop);
-
-	float kernel_time_mad_hp = 0.f;
-	if( doHalfs ){
+	for (int iter = 0; iter < BENCH_ITERS; iter++) {
 		initializeEvents(&start, &stop);
-		half2 h_ones;
-		*((int32_t*)&h_ones) = 15360 + (15360 << 16); // 1.0 as half
-		benchmark_func< half2, BLOCK_SIZE, memory_ratio, false ><<< dimGrid, dimBlock >>>(h_ones, (half2*)cd);
-		kernel_time_mad_hp = finalizeEvents(start, stop);
+		benchmark_func< float, BLOCK_SIZE, memory_ratio, false ><<< dimGrid, dimBlock >>>(1.0f, (float*)cd);
+		kernel_time_mad_sp += finalizeEvents(start, stop);
+	}
+	kernel_time_mad_sp = kernel_time_mad_sp / BENCH_ITERS;
+
+	for (int iter = 0; iter < BENCH_ITERS; iter++) {
+		initializeEvents(&start, &stop);
+		benchmark_func< double, BLOCK_SIZE, memory_ratio, false ><<< dimGrid, dimBlock >>>(1.0, cd);
+		kernel_time_mad_dp += finalizeEvents(start, stop);
+	}
+	kernel_time_mad_dp = kernel_time_mad_dp / BENCH_ITERS;
+
+	kernel_time_mad_hp = 0.f;
+	if( doHalfs ){
+		for (int iter = 0; iter < BENCH_ITERS; iter++) {
+			initializeEvents(&start, &stop);
+			half2 h_ones;
+			*((int32_t*)&h_ones) = 15360 + (15360 << 16); // 1.0 as half
+			benchmark_func< half2, BLOCK_SIZE, memory_ratio, false ><<< dimGrid, dimBlock >>>(h_ones, (half2*)cd);
+			kernel_time_mad_hp += finalizeEvents(start, stop);
+		}
+		kernel_time_mad_hp = kernel_time_mad_hp / BENCH_ITERS;
 	}
 
 #ifdef INTEGER_OPS
-	initializeEvents(&start, &stop);
-	benchmark_func< int, BLOCK_SIZE, memory_ratio, true ><<< dimGrid, dimBlock >>>(1, (int*)cd);
-	float kernel_time_mad_int = finalizeEvents(start, stop);
+	for (int iter = 0; iter < BENCH_ITERS; iter++) {
+		initializeEvents(&start, &stop);
+		benchmark_func< int, BLOCK_SIZE, memory_ratio, true ><<< dimGrid, dimBlock >>>(1, (int*)cd);
+		kernel_time_mad_int += finalizeEvents(start, stop);
+	}
+	kernel_time_mad_int = kernel_time_mad_int / BENCH_ITERS;
 #endif
 
 	const double memaccesses_ratio = (double)(memory_ratio)/UNROLL_ITERATIONS;
@@ -289,20 +315,20 @@ void runbench(double *cd, long size, bool doHalfs){
 		(computations_ratio*(double)computations)/kernel_time_mad_int*1000./(double)(1000*1000*1000),
 		(memaccesses_ratio*(double)memoryoperations*sizeof(int))/kernel_time_mad_int*1000./(1000.*1000.*1000.) );
 #else
-		printf("         %4d,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f\n",
-			compute_iterations,
-			((double)computations)/((double)memoryoperations*sizeof(float)),
-			kernel_time_mad_sp,
-			((double)computations)/kernel_time_mad_sp*1000./(double)(1000*1000*1000),
-			((double)memoryoperations*sizeof(float))/kernel_time_mad_sp*1000./(1000.*1000.*1000.),
-			((double)computations)/((double)memoryoperations*sizeof(double)),
-			kernel_time_mad_dp,
-			((double)computations)/kernel_time_mad_dp*1000./(double)(1000*1000*1000),
-			((double)memoryoperations*sizeof(double))/kernel_time_mad_dp*1000./(1000.*1000.*1000.),
-			((double)2*computations)/((double)memoryoperations*sizeof(half2)),
-			kernel_time_mad_hp,
-			((double)2*computations)/kernel_time_mad_hp*1000./(double)(1000*1000*1000),
-			((double)memoryoperations*sizeof(half2))/kernel_time_mad_hp*1000./(1000.*1000.*1000.) );
+	printf("         %4d,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f\n",
+		UNROLL_ITERATIONS-memory_ratio,
+		(computations_ratio*(double)computations)/(memaccesses_ratio*(double)memoryoperations*sizeof(float)),
+		kernel_time_mad_sp,
+		(computations_ratio*(double)computations)/kernel_time_mad_sp*1000./(double)(1000*1000*1000),
+		(memaccesses_ratio*(double)memoryoperations*sizeof(float))/kernel_time_mad_sp*1000./(1000.*1000.*1000.),
+		(computations_ratio*(double)computations)/(memaccesses_ratio*(double)memoryoperations*sizeof(double)),
+		kernel_time_mad_dp,
+		(computations_ratio*(double)computations)/kernel_time_mad_dp*1000./(double)(1000*1000*1000),
+		(memaccesses_ratio*(double)memoryoperations*sizeof(double))/kernel_time_mad_dp*1000./(1000.*1000.*1000.),
+		(computations_ratio*(double)2*computations)/(memaccesses_ratio*(double)memoryoperations*sizeof(half2)),
+		kernel_time_mad_hp,
+		(computations_ratio*(double)2*computations)/kernel_time_mad_hp*1000./(double)(1000*1000*1000),
+		(memaccesses_ratio*(double)memoryoperations*sizeof(half2))/kernel_time_mad_hp*1000./(1000.*1000.*1000.) );
 #endif
 }
 
