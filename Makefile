@@ -185,5 +185,7 @@ version_info.h:
 
 clean:
 	\rm -f mixbench-cuda-alt mixbench-cuda-ro mixbench-ocl-alt mixbench-ocl-ro mixbench-hip-alt mixbench-hip-ro *.o version_info.h
+	\rm -f mixbench-cuda-alt mixbench-cuda-alt-add mixbench-cuda-alt-mul mixbench-cuda-alt-div mixbench-cuda-alt-exp mixbench-cuda-alt-log
+	\rm -f mixbench-cuda-ro mixbench-cuda-ro-add mixbench-cuda-ro-mul mixbench-cuda-ro-div
 
 rebuild: clean mixbench-cuda-alt mixbench-cuda-ro mixbench-ocl-alt mixbench-ocl-ro mixbench-hip-alt mixbench-hip-ro
