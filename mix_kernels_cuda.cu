@@ -221,9 +221,10 @@ float finalizeEvents(cudaEvent_t start, cudaEvent_t stop){
 	return kernel_time;
 }
 
+template<int threads_per_block>
 void runbench_warmup(double *cd, long size){
 	const long reduced_grid_size = size/(UNROLLED_MEMORY_ACCESSES)/32;
-	const int BLOCK_SIZE = 256;
+	const int BLOCK_SIZE = threads_per_block;
 	const int TOTAL_REDUCED_BLOCKS = reduced_grid_size/BLOCK_SIZE;
 
 	dim3 dimBlock(BLOCK_SIZE, 1, 1);
@@ -236,7 +237,7 @@ void runbench_warmup(double *cd, long size){
 	}
 }
 
-template<int memory_ratio>
+template<int memory_ratio, int threads_per_block>
 void runbench(double *cd, long size, bool doHalfs){
 	if( memory_ratio>UNROLL_ITERATIONS ){
 		fprintf(stderr, "ERROR: memory_ratio exceeds UNROLL_ITERATIONS\n");
@@ -244,7 +245,7 @@ void runbench(double *cd, long size, bool doHalfs){
 	}
 
 	const long compute_grid_size = size/(UNROLLED_MEMORY_ACCESSES)/2;
-	const int BLOCK_SIZE = 256;
+	const int BLOCK_SIZE = threads_per_block	;
 	const int TOTAL_BLOCKS = compute_grid_size/BLOCK_SIZE;
 	const long long computations = OPS_PER_THREAD*(long long)(COMP_ITERATIONS)*REGBLOCK_SIZE*compute_grid_size;
 	const long long memoryoperations = (long long)(COMP_ITERATIONS)*compute_grid_size;
@@ -296,8 +297,9 @@ void runbench(double *cd, long size, bool doHalfs){
 	const double computations_ratio = 1.0-memaccesses_ratio;
 
 #ifdef INTEGER_OPS
-	printf("         %4d,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,  %8.3f,%8.2f,%8.2f,%7.2f\n",
+	printf("         %4d,         %4d,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,  %8.3f,%8.2f,%8.2f,%7.2f\n",
 		UNROLL_ITERATIONS-memory_ratio,
+		BLOCK_SIZE,
 		(computations_ratio*(double)computations)/(memaccesses_ratio*(double)memoryoperations*sizeof(float)),
 		kernel_time_mad_sp,
 		(computations_ratio*(double)computations)/kernel_time_mad_sp*1000./(double)(1000*1000*1000),
@@ -315,8 +317,9 @@ void runbench(double *cd, long size, bool doHalfs){
 		(computations_ratio*(double)computations)/kernel_time_mad_int*1000./(double)(1000*1000*1000),
 		(memaccesses_ratio*(double)memoryoperations*sizeof(int))/kernel_time_mad_int*1000./(1000.*1000.*1000.) );
 #else
-	printf("         %4d,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f\n",
+	printf("         %4d,         %4d,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f,   %8.3f,%8.2f,%8.2f,%7.2f\n",
 		UNROLL_ITERATIONS-memory_ratio,
+		BLOCK_SIZE,
 		(computations_ratio*(double)computations)/(memaccesses_ratio*(double)memoryoperations*sizeof(float)),
 		kernel_time_mad_sp,
 		(computations_ratio*(double)computations)/kernel_time_mad_sp*1000./(double)(1000*1000*1000),
@@ -350,50 +353,98 @@ extern "C" void mixbenchGPU(double *c, long size){
 	// Synchronize in order to wait for memory operations to finish
 	CUDA_SAFE_CALL( cudaThreadSynchronize() );
 
+	printf("\n----- Varying operational intensity -----\n");
 #ifdef INTEGER_OPS
 	printf("----------------------------------------------------------------------------- CSV data -----------------------------------------------------------------------------\n");
-	printf("Experiment ID, Single Precision ops,,,,              Double precision ops,,,,              Half precision ops,,,,                Integer operations,,, \n");
-	printf("Compute iters, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Iops/byte, ex.time,   GIOPS, GB/sec\n");
+	printf("Experiment ID,              ,Single Precision ops,,,,              Double precision ops,,,,              Half precision ops,,,,                Integer operations,,, \n");
+	printf("Compute iters, Threads/block, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Iops/byte, ex.time,   GIOPS, GB/sec\n");
 #else
 	printf("----------------------------------------------------------------------------- CSV data ------------------------------------------\n");
-	printf("Experiment ID, Single Precision ops,,,,              Double precision ops,,,,              Half precision ops,,,,                \n");
-	printf("Compute iters, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, \n");
+	printf("Experiment ID,              ,Single Precision ops,,,,              Double precision ops,,,,              Half precision ops,,,,                \n");
+	printf("Compute iters, Threads/block, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, \n");
 #endif
-	runbench_warmup(cd, size);
+	runbench_warmup<256>(cd, size);
 
-	runbench<32>(cd, size, doHalfs);
-	runbench<31>(cd, size, doHalfs);
-	runbench<30>(cd, size, doHalfs);
-	runbench<29>(cd, size, doHalfs);
-	runbench<28>(cd, size, doHalfs);
-	runbench<27>(cd, size, doHalfs);
-	runbench<26>(cd, size, doHalfs);
-	runbench<25>(cd, size, doHalfs);
-	runbench<24>(cd, size, doHalfs);
-	runbench<23>(cd, size, doHalfs);
-	runbench<22>(cd, size, doHalfs);
-	runbench<21>(cd, size, doHalfs);
-	runbench<20>(cd, size, doHalfs);
-	runbench<19>(cd, size, doHalfs);
-	runbench<18>(cd, size, doHalfs);
-	runbench<17>(cd, size, doHalfs);
-	runbench<16>(cd, size, doHalfs);
-	runbench<15>(cd, size, doHalfs);
-	runbench<14>(cd, size, doHalfs);
-	runbench<13>(cd, size, doHalfs);
-	runbench<12>(cd, size, doHalfs);
-	runbench<11>(cd, size, doHalfs);
-	runbench<10>(cd, size, doHalfs);
-	runbench<9>(cd, size, doHalfs);
-	runbench<8>(cd, size, doHalfs);
-	runbench<7>(cd, size, doHalfs);
-	runbench<6>(cd, size, doHalfs);
-	runbench<5>(cd, size, doHalfs);
-	runbench<4>(cd, size, doHalfs);
-	runbench<3>(cd, size, doHalfs);
-	runbench<2>(cd, size, doHalfs);
-	runbench<1>(cd, size, doHalfs);
-	runbench<0>(cd, size, doHalfs);
+	runbench<32, 256>(cd, size, doHalfs);
+	runbench<31, 256>(cd, size, doHalfs);
+	runbench<30, 256>(cd, size, doHalfs);
+	runbench<29, 256>(cd, size, doHalfs);
+	runbench<28, 256>(cd, size, doHalfs);
+	runbench<27, 256>(cd, size, doHalfs);
+	runbench<26, 256>(cd, size, doHalfs);
+	runbench<25, 256>(cd, size, doHalfs);
+	runbench<24, 256>(cd, size, doHalfs);
+	runbench<23, 256>(cd, size, doHalfs);
+	runbench<22, 256>(cd, size, doHalfs);
+	runbench<21, 256>(cd, size, doHalfs);
+	runbench<20, 256>(cd, size, doHalfs);
+	runbench<19, 256>(cd, size, doHalfs);
+	runbench<18, 256>(cd, size, doHalfs);
+	runbench<17, 256>(cd, size, doHalfs);
+	runbench<16, 256>(cd, size, doHalfs);
+	runbench<15, 256>(cd, size, doHalfs);
+	runbench<14, 256>(cd, size, doHalfs);
+	runbench<13, 256>(cd, size, doHalfs);
+	runbench<12, 256>(cd, size, doHalfs);
+	runbench<11, 256>(cd, size, doHalfs);
+	runbench<10, 256>(cd, size, doHalfs);
+	runbench< 9, 256>(cd, size, doHalfs);
+	runbench< 8, 256>(cd, size, doHalfs);
+	runbench< 7, 256>(cd, size, doHalfs);
+	runbench< 6, 256>(cd, size, doHalfs);
+	runbench< 5, 256>(cd, size, doHalfs);
+	runbench< 4, 256>(cd, size, doHalfs);
+	runbench< 3, 256>(cd, size, doHalfs);
+	runbench< 2, 256>(cd, size, doHalfs);
+	runbench< 1, 256>(cd, size, doHalfs);
+	runbench< 0, 256>(cd, size, doHalfs);
+
+	printf("--------------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
+
+	printf("\n----- Varying number of threads -----\n");
+#ifdef INTEGER_OPS
+	printf("----------------------------------------------------------------------------- CSV data -----------------------------------------------------------------------------\n");
+	printf("Experiment ID,              , Single Precision ops,,,,              Double precision ops,,,,              Half precision ops,,,,                Integer operations,,, \n");
+	printf("Compute iters, Threads/block, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Iops/byte, ex.time,   GIOPS, GB/sec\n");
+#else
+	printf("----------------------------------------------------------------------------- CSV data ------------------------------------------\n");
+	printf("Experiment ID,              , Single Precision ops,,,,              Double precision ops,,,,              Half precision ops,,,,                \n");
+	printf("Compute iters, Threads/block, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, Flops/byte, ex.time,  GFLOPS, GB/sec, \n");
+#endif
+	runbench_warmup<32>(cd, size);
+
+	runbench< 0,  1>(cd, size, doHalfs);
+	runbench< 0,  2>(cd, size, doHalfs);
+	runbench< 0,  3>(cd, size, doHalfs);
+	runbench< 0,  4>(cd, size, doHalfs);
+	runbench< 0,  5>(cd, size, doHalfs);
+	runbench< 0,  6>(cd, size, doHalfs);
+	runbench< 0,  7>(cd, size, doHalfs);
+	runbench< 0,  8>(cd, size, doHalfs);
+	runbench< 0,  9>(cd, size, doHalfs);
+	runbench< 0, 10>(cd, size, doHalfs);
+	runbench< 0, 11>(cd, size, doHalfs);
+	runbench< 0, 12>(cd, size, doHalfs);
+	runbench< 0, 13>(cd, size, doHalfs);
+	runbench< 0, 14>(cd, size, doHalfs);
+	runbench< 0, 15>(cd, size, doHalfs);
+	runbench< 0, 16>(cd, size, doHalfs);
+	runbench< 0, 17>(cd, size, doHalfs);
+	runbench< 0, 18>(cd, size, doHalfs);
+	runbench< 0, 19>(cd, size, doHalfs);
+	runbench< 0, 20>(cd, size, doHalfs);
+	runbench< 0, 21>(cd, size, doHalfs);
+	runbench< 0, 22>(cd, size, doHalfs);
+	runbench< 0, 23>(cd, size, doHalfs);
+	runbench< 0, 24>(cd, size, doHalfs);
+	runbench< 0, 25>(cd, size, doHalfs);
+	runbench< 0, 26>(cd, size, doHalfs);
+	runbench< 0, 27>(cd, size, doHalfs);
+	runbench< 0, 28>(cd, size, doHalfs);
+	runbench< 0, 29>(cd, size, doHalfs);
+	runbench< 0, 30>(cd, size, doHalfs);
+	runbench< 0, 31>(cd, size, doHalfs);
+	runbench< 0, 32>(cd, size, doHalfs);
 
 	printf("--------------------------------------------------------------------------------------------------------------------------------------------------------------------\n");
 
