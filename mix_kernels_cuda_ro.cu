@@ -56,7 +56,7 @@ inline __device__ T log(const T a, const T b, const T c){ return log(c); }
 template<class T>
 inline __device__ bool equal(const T a, const T b){ return a==b; }
 
-#if __CUDA_ARCH__ >= 530
+#if __CUDA_ARCH__ >= 530 && __CUDACC_VER_MAJOR__ >= 9
 template<>
 inline __device__ half2 conv_int(const int i){ return __half2half2( __int2half_rd(i) ); }
 template<>
